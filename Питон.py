@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import pygame as pg
 import os
-from time import sleep
+import sys
 from enum import Enum
 from random import randint, choice
 
@@ -24,6 +24,7 @@ TICKLENGTH = 200  # Длина тика в милисекундах
 pg.init()
 size = width, height = SPITE_SIZE * BOARD_WIDTH, SPITE_SIZE * BOARD_HEIGHT
 screen = pg.display.set_mode(size)
+pg.display.set_caption('Игра \"ПИТОН\"')
 # список файлов уровней
 stages = ["level1.lvl", "level2.lvl", "level3.lvl"]
 rabbit_sprites = pg.sprite.Group()  # кролики
@@ -35,7 +36,12 @@ playerh_group = pg.sprite.Group()  # голова питона
 python_tail = None  # хвост питона
 
 
-def draw():
+def terminate():
+    pg.quit()
+    sys.exit()
+
+
+def draw(event, stage, level):
     screen.fill((0, 255, 0))
     pool_group.update()
     wall_group.update()
@@ -80,6 +86,327 @@ def draw():
                              SPITE_SIZE * BOARD_HEIGHT / 3 * 2)))
 
 
+def game():
+    global score, rabbit_count, game_over
+    score = 0  # счет
+    level = 1  # уровень сложности
+    stage = 1  # уровень
+    # цикл игры
+    pg.mixer.music.stop()
+    pg.mixer.music.load('data/game.mp3')
+    pg.mixer.music.play(-1, 0.0)
+    clock = pg.time.Clock()
+    game_over = False
+    rabbit_count = generate_level(load_level(stages[stage - 1]), level)
+    while True:
+        for event in pg.event.get():
+            # при закрытии окна
+            if event.type == pg.QUIT:
+                terminate()
+            if game_over:
+                # ждем нажатия любой клавиши
+                if event.type == pg.KEYDOWN:
+                    rabbit_sprites.empty()
+                    carrot_sprites.empty()
+                    pool_group.empty()
+                    wall_group.empty()
+                    playerh_group.empty()
+                    player_group.empty()
+                    pg.mixer.music.stop()
+                    pg.mixer.music.load('data/rules.mp3')
+                    pg.mixer.music.play(-1, 0.0)
+                    rec = read_records()
+                    return
+            else:
+                # отрисовка и изменение свойств объектов
+                draw(event, stage, level)
+                pg.display.flip()
+                if rabbit_count == 0:  # уровень пройден
+                    pg.mixer.music.stop()
+                    pg.mixer.music.load('data/count.ogg')
+                    pg.mixer.music.play(-1, 0.0)
+                    # отключаем событие по таймеру
+                    pg.time.set_timer(EVENTTICK, 0)
+                    # бонусы за оставшиеся морковки
+                    for i in carrot_sprites:
+                        pg.event.get()
+                        score += 50
+                        i.kill()
+                        draw(event, stage, level)
+                        pg.display.flip()
+                        clock.tick(FPS / 4)
+                    # очищаем все группы спрайтов
+                    rabbit_sprites.empty()
+                    carrot_sprites.empty()
+                    pool_group.empty()
+                    wall_group.empty()
+                    playerh_group.empty()
+                    player_group.empty()
+                    stage += 1
+                    if stage > len(stages):
+                        stage = 1
+                        level += 1
+                    # загружаем следующий уровень
+                    rabbit_count = generate_level(load_level(stages[stage - 1]), level)
+                    # включаем событие по таймеру
+                    pg.time.set_timer(EVENTTICK, TICKLENGTH)
+                    pg.mixer.music.stop()
+                    pg.mixer.music.load('data/game.mp3')
+                    pg.mixer.music.play(-1, 0.0)
+            clock.tick(FPS)
+
+
+def draw_start_screen(event):
+    DELTA = 78
+    font = pg.font.Font(None, 100)
+    color = pg.Color('red')
+    pool_group.update()
+    wall_group.update()
+    player_group.update()
+    rabbit_sprites.update(event)
+    carrot_sprites.update()
+    pool_group.draw(screen)
+    wall_group.draw(screen)
+    player_group.draw(screen)
+    rabbit_sprites.draw(screen)
+    carrot_sprites.draw(screen)
+    text = font.render("ПРАВИЛА", 1, color)
+    text_y = SPITE_SIZE * BOARD_HEIGHT // 2
+    text_x = SPITE_SIZE * BOARD_WIDTH // 2 - text.get_width() // 2
+    text_w = text.get_width() + 40
+    text_h = text.get_height()
+    box_x = text_x - 20
+    screen.blit(text, (text_x, text_y + DELTA))
+    pg.draw.rect(screen, color, (box_x, text_y - 3 + DELTA,
+                                     text_w, text_h), 3)
+    text = font.render("ИГРАТЬ", 1, color)
+    text_x = SPITE_SIZE * BOARD_WIDTH // 2 - text.get_width() // 2
+    screen.blit(text, (text_x, text_y))
+    pg.draw.rect(screen, color, (box_x, text_y - 3,
+                                     text_w, text_h), 3)
+    text = font.render("РЕКОРДЫ", 1, color)
+    text_x = SPITE_SIZE * BOARD_WIDTH // 2 - text.get_width() // 2
+    screen.blit(text, (text_x, text_y + DELTA * 2))
+    pg.draw.rect(screen, color, (box_x, text_y - 3 + DELTA * 2,
+                                     text_w, text_h), 3)
+    text = font.render("ВЫХОД", 1, color)
+    text_x = SPITE_SIZE * BOARD_WIDTH // 2 - text.get_width() // 2
+    screen.blit(text, (text_x, text_y + DELTA * 3))
+    pg.draw.rect(screen, color, (box_x, text_y - 3 + DELTA * 3,
+                                     text_w, text_h), 3)
+    pg.display.flip()
+    return box_x, text_x - 30 + text_w, text_h
+
+
+def start_screen_groups():
+    p = {'1' : PythonHead.image_t, '2' : PythonHead.image_b,
+         '3' : PythonHead.image_l, '4' : PythonHead.image_r,
+         '5' : PythonBody.image_v, '6' : PythonBody.image_h,
+         '7' : PythonBody.image_ttb, '8' : PythonBody.image_tbt,
+         '9' : PythonBody.image_tlr, 'A' : PythonBody.image_trl,
+         'B' : PythonBody.image_lt, 'C' : PythonBody.image_lb,
+         'D' : PythonBody.image_rt, 'E' : PythonBody.image_rb}
+    # строим забор и сажаем траву
+    for i in range(BOARD_WIDTH):
+        Wall(wall_group, i, 0)
+        Wall(wall_group, i, BOARD_HEIGHT - 1)
+    for i in range(1, BOARD_HEIGHT - 1):
+        Wall(wall_group, 0, i)
+        Wall(wall_group, BOARD_WIDTH - 1, i)
+        for j in range(1, BOARD_WIDTH - 1):
+            Pool(pool_group, j, i)
+    lvl = load_level('title.txt')
+    for y in range(len(lvl)):
+        for x in range(len(lvl[y])):
+            if lvl[y][x] != ".":
+                PythonBody(player_group, None, p[lvl[y][x]], x + 1, y + 1)
+    Rabbit(rabbit_sprites, randint(1, 8), randint(9, 18))
+    Rabbit(rabbit_sprites, randint(1, 8), randint(9, 18))
+    Rabbit(rabbit_sprites, randint(1, 8), randint(9, 18))
+    Rabbit(rabbit_sprites, randint(23, 30), randint(9, 18))
+    Rabbit(rabbit_sprites, randint(23, 30), randint(9, 18))
+    Rabbit(rabbit_sprites, randint(23, 30), randint(9, 18))
+    Rabbit(rabbit_sprites, randint(28,30), randint(1, 8))
+    for i in range(3):
+        for j in range(3):
+            Carrot(carrot_sprites,randint(1, 8), randint(9, 18))
+            Carrot(carrot_sprites,randint(23, 30), randint(9, 18))
+        Carrot(carrot_sprites,randint(28, 30), randint(1, 8))
+    for i in rabbit_sprites:
+        i.find_carrot()
+
+
+def start_screen():
+    DELTA = 78
+    pg.time.set_timer(EVENTTICK, TICKLENGTH // 2)
+    pg.mixer.music.load('data/rules.mp3')
+    pg.mixer.music.play(-1, 0.0)
+    start_screen_groups()
+    sx, ex, yh = draw_start_screen(pg.event.get())
+    sy = SPITE_SIZE * BOARD_HEIGHT // 2
+    # цикл работы меню
+    while True:
+        for event in pg.event.get():
+            if event.type == pg.QUIT:
+                terminate()
+            elif event.type == pg.MOUSEBUTTONDOWN:
+                if event.button == 1 and event.pos[0] >= sx and event.pos[0] <= ex:
+                    if event.pos[1] >= sy and event.pos[1] <= sy + yh:
+                        pg.time.set_timer(EVENTTICK, TICKLENGTH)
+                        pool_group.empty()
+                        wall_group.empty()
+                        player_group.empty()
+                        rabbit_sprites.empty()
+                        carrot_sprites.empty()
+                        game()
+                        start_screen_groups()
+                        rec= read_records()
+                        if score > rec[14][1] and score > 0:
+                            add_new_record()  # добавляем новый рекорд
+                        draw_start_screen(event)
+                        pg.time.set_timer(EVENTTICK, TICKLENGTH // 2)
+                    elif event.pos[1] >= sy + DELTA and event.pos[1] <= sy + yh + DELTA:
+                        rules()
+                        draw_start_screen(event)
+                    elif event.pos[1] >= sy + DELTA * 2 and event.pos[1] <= sy + yh + DELTA * 2:
+                        records()
+                        draw_start_screen(event)
+                    elif event.pos[1] >= sy + DELTA * 3 and event.pos[1] <= sy + yh + DELTA * 3:
+                        terminate()
+            elif event.type == EVENTTICK:
+                draw_start_screen(event)
+
+
+def rules():
+    # создаем экран с правилами
+    rules = ["ПРАВИЛА ИГРЫ",
+             "Управляя питоном с помощью клавиатуры,",
+             "съешьте всех кроликов на поле.",
+             "С каждым съеденым кроликом и уровнем",
+             "сложности, длина питона увеличивается.",
+             "Столкновение питона со стеной,",
+             "морковкой или собственным телом",
+             "приводит к концу игры.",
+             "Для начала нажмите любую клавишу."]
+    # выводим текст
+    font = pg.font.Font(None, 50)
+    pool_group.update()
+    wall_group.update()
+    pool_group.draw(screen)
+    wall_group.draw(screen)
+    for i, line in enumerate(rules):
+        string_rendered = font.render(line, 1, pg.Color('black'))
+        screen.blit(string_rendered, (SPITE_SIZE * 2, SPITE_SIZE * (i + 1) * 2))
+    pg.display.flip()
+    # цикл демонстрации экрана с правилами
+    while True:
+        for event in pg.event.get():
+            if event.type == pg.QUIT:
+                terminate()
+            elif (event.type == pg.KEYDOWN or
+                  event.type == pg.MOUSEBUTTONDOWN):
+                return
+
+
+def read_records():
+    rec=[["", 0] for i in range(15)]
+    with open('data/records.txt', 'r') as f:
+        nums = f.read().splitlines()
+    for i in range(len(nums) // 2):
+        rec[i][0] = nums[i *2]
+        rec[i][1] = int(nums[i *2 + 1])
+    f.close()
+    return rec
+
+
+def save_records(rec):
+    f = open('data/records.txt', 'w')
+    for i in rec:
+        f.write(i[0] + '\n' + str(i[1]) + '\n')
+    f.close()
+
+
+def records(n=None):
+    rec = read_records()
+    save_records(rec)
+    # создаем экран с рекордами
+    head = "Таблица рекордов"
+    # выводим текст
+    font = pg.font.Font(None, 50)
+    pool_group.update()
+    wall_group.update()
+    pool_group.draw(screen)
+    wall_group.draw(screen)
+    string_rendered = font.render(head, 1, pg.Color('black'))
+    screen.blit(string_rendered, (SPITE_SIZE * 2, SPITE_SIZE * 2))
+    for i in range(15):
+        s = "0" * (2 - len(str(i + 1))) + str(i + 1)
+        if i == n:
+            color = pg.Color('red')
+        else:
+            color = pg.Color('black')
+        string_rendered = font.render(s, 1, color)
+        screen.blit(string_rendered, (SPITE_SIZE * 2, SPITE_SIZE * (i + 4)))
+        string_rendered = font.render(rec[i][0], 1, color)
+        screen.blit(string_rendered, (SPITE_SIZE * 4, SPITE_SIZE * (i + 4)))
+        s = "0" * (10 - len(str(rec[i][1]))) + str(rec[i][1])
+        string_rendered = font.render(s, 1, color)
+        screen.blit(string_rendered, (SPITE_SIZE * 20, SPITE_SIZE * (i + 4)))
+    pg.display.flip()
+    # цикл демонстрации экрана с рекордами
+    while True:
+        for event in pg.event.get():
+            if event.type == pg.QUIT:
+                terminate()
+            elif (event.type == pg.KEYDOWN or
+                  event.type == pg.MOUSEBUTTONDOWN):
+                return
+
+
+def add_new_record():
+    rec = read_records()
+    i = 0
+    while rec[i][1] >= score:
+        i += 1
+    s = ""
+    while True:
+        for event in pg.event.get():
+            if event.type == pg.QUIT:
+                terminate()
+            elif (event.type == pg.KEYDOWN):
+                if event.key == pg.K_RETURN:
+                    del rec[14]
+                    rec.insert(i, [s, score])
+                    save_records(rec)
+                    records(i)
+                    return
+                elif event.key == pg.K_BACKSPACE:
+                    s = s[:-1]
+                else:
+                    if len(s) < 30:
+                        s += event.unicode
+            elif event.type == EVENTTICK:
+                head = "Введите имя для таблицы рекордов"
+                # выводим текст
+                font = pg.font.Font(None, 75)
+                pool_group.update()
+                wall_group.update()
+                pool_group.draw(screen)
+                wall_group.draw(screen)
+                text = font.render(head, 1, pg.Color('red'))
+                text_y = SPITE_SIZE * BOARD_HEIGHT // 2
+                text_x = SPITE_SIZE * BOARD_WIDTH // 2 - text.get_width() // 2
+                text_w = text.get_width()
+                text_h = text.get_height()
+                box_x = text_x - 20
+                screen.blit(text, (text_x, text_y - 80))
+                pg.draw.rect(screen, (0, 0, 0), (text_x, text_y, text_w, text_h), 0)
+                pg.draw.rect(screen, (255, 0, 0), (text_x, text_y, text_w, text_h), 3)
+                text = font.render(s, 1, pg.Color('red'))
+                screen.blit(text, (text_x + 2, text_y + 2))
+                pg.display.flip()
+
+
 def load_image(name, colorkey=None):
     fullname = os.path.join('data', name)
     image = pg.image.load(fullname).convert()
@@ -103,7 +430,7 @@ def load_level(filename):
     return list(map(lambda x: x.ljust(max_width, '.'), level_map))
 
 
-def generate_level(lvl):
+def generate_level(lvl, level):
     rabbit_count = 0
     # строим забор и сажаем траву
     for i in range(BOARD_WIDTH):
@@ -374,6 +701,7 @@ class PythonHead(pg.sprite.Sprite):
         super().__init__(group)
         self.x = 1
         self.y = 18
+        self.last = True
         self.body_image = PythonBody.image_h
         self.image = PythonHead.image_r
         self.rect = self.image.get_rect()
@@ -452,7 +780,6 @@ class PythonHead(pg.sprite.Sprite):
                     pg.mixer.music.stop()
                     pg.mixer.music.load('data/over.ogg')
                     pg.mixer.music.play(1, 0.0)
-                    draw()
                 elif pg.sprite.spritecollideany(self, rabbit_sprites):
                     # питон съедает кролика
                     for i in rabbit_sprites:
@@ -461,14 +788,14 @@ class PythonHead(pg.sprite.Sprite):
                             i.kill()
                             rabbit_count -= 1
                             python_tail = PythonBody(player_group, python_tail)
-            if event.type == pg.KEYDOWN:
-                if (event.key == pg.K_LEFT or event.key == pg.K_a):
+            if args[0].type == pg.KEYDOWN:
+                if (args[0].key == pg.K_LEFT or args[0].key == pg.K_a):
                     self.next_direction = Directions.left
-                elif (event.key == pg.K_RIGHT or event.key == pg.K_d):
+                elif (args[0].key == pg.K_RIGHT or args[0].key == pg.K_d):
                     self.next_direction = Directions.right
-                elif (event.key == pg.K_UP or event.key == pg.K_w):
+                elif (args[0].key == pg.K_UP or args[0].key == pg.K_w):
                     self.next_direction = Directions.top
-                elif (event.key == pg.K_DOWN or event.key == pg.K_s):
+                elif (args[0].key == pg.K_DOWN or args[0].key == pg.K_s):
                     self.next_direction = Directions.bottom
 
     def get_image(self):
@@ -482,13 +809,40 @@ class PythonBody(pg.sprite.Sprite):
     image_rb = load_image("prb.png")
     image_h = load_image("ph.png")
     image_v = load_image("pv.png")
+    image_ttl = load_image("pttl.png")
+    image_ttr = load_image("pttr.png")
+    image_ttb = load_image("pttb.png")
+    image_tbl = load_image("ptbl.png")
+    image_tbr = load_image("ptbr.png")
+    image_tbt = load_image("ptbt.png")
+    image_trt = load_image("ptrt.png")
+    image_trb = load_image("ptrb.png")
+    image_trl = load_image("ptrl.png")
+    image_trt = load_image("ptrt.png")
+    image_trb = load_image("ptrb.png")
+    image_trl = load_image("ptrl.png")
+    image_tlt = load_image("ptlt.png")
+    image_tlb = load_image("ptlb.png")
+    image_tlr = load_image("ptlr.png")
 
-    def __init__(self, group, before):
+    def __init__(self, group, before, image=None, x=None, y=None):
         super().__init__(group)
         self.before = before
-        self.x = -1
-        self.y = 18
-        self.image = PythonBody.image_h
+        if x:
+            self.x = x
+        else:
+            self.x = -1
+        if y:
+            self.y = y
+        else:
+            self.y = 18
+        self.last = True
+        if before:
+            self.before.last = False
+        if image:
+            self.image = image
+        else:
+            self.image = PythonBody.image_h
         self.rect = self.image.get_rect()
         self.rect.x = self.x * SPITE_SIZE
         self.rect.y = self.y * SPITE_SIZE
@@ -500,122 +854,42 @@ class PythonBody(pg.sprite.Sprite):
         self.image = self.before.get_image()
         self.rect.x = self.before.rect.x
         self.rect.y = self.before.rect.y
+        self.x = self.before.x
+        self.y = self.before.y
+        if self.last:
+            if self.image == PythonBody.image_lt:
+                if self.before.before.x < self.x:
+                    self.image = PythonBody.image_tlt
+                else:
+                    self.image = PythonBody.image_ttl
+            elif self.image == PythonBody.image_rt:
+                if self.before.before.x > self.x:
+                    self.image = PythonBody.image_trt
+                else:
+                    self.image = PythonBody.image_ttr
+            elif self.image == PythonBody.image_v:
+                if self.before.before.y > self.y:
+                    self.image = PythonBody.image_tbt
+                else:
+                    self.image = PythonBody.image_ttb                
+            elif self.image == PythonBody.image_lb:
+                if self.before.before.x < self.x:
+                    self.image = PythonBody.image_tlb
+                else:
+                    self.image = PythonBody.image_tbl
+            elif self.image == PythonBody.image_rb:
+                if self.before.before.x > self.x:
+                    self.image = PythonBody.image_trb
+                else:
+                    self.image = PythonBody.image_tbr
+            elif self.image == PythonBody.image_h:
+                if self.before.before.x > self.x:
+                    self.image = PythonBody.image_trl
+                else:
+                    self.image = PythonBody.image_tlr                
 
 
-score = 0  # счет
-level = 1  # уровень сложности
-stage = 1  # уровень
-pg.display.flip()
-clock = pg.time.Clock()
-running = True
 game_over = False
-pg.time.set_timer(EVENTTICK, TICKLENGTH)
-# создаем экран с правилами
-rules = ["ПРАВИЛА ИГРЫ",
-         "Управляя питоном с помощью клавиатуры,",
-         "съешьте всех кроликов на поле.",
-         "С каждым съеденым кроликом и уровнем",
-         "сложности, длина питона увеличивается.",
-         "Столкновение питона со стеной,",
-         "морковкой или собственным телом",
-         "приводит к концу игры.",
-         "Для начала нажмите любую клавишу."]
-# строим забор и сажаем траву
-for i in range(BOARD_WIDTH):
-    Wall(wall_group, i, 0)
-    Wall(wall_group, i, BOARD_HEIGHT - 1)
-for i in range(1, BOARD_HEIGHT - 1):
-    Wall(wall_group, 0, i)
-    Wall(wall_group, BOARD_WIDTH - 1, i)
-    for j in range(1, BOARD_WIDTH - 1):
-        Pool(pool_group, j, i)
-# выводим текст
-font = pg.font.Font(None, 50)
-pool_group.update()
-wall_group.update()
-pool_group.draw(screen)
-wall_group.draw(screen)
-for i, line in enumerate(rules):
-    string_rendered = font.render(line, 1, pg.Color('black'))
-    screen.blit(string_rendered, (SPITE_SIZE * 2, SPITE_SIZE * (i + 1) * 2))
-pg.display.flip()
-# цикл демонстрации экрана с правилами
-pg.mixer.music.load('data/rules.mp3')
-pg.mixer.music.play(-1, 0.0)
-while running:
-    for event in pg.event.get():
-        if event.type == pg.QUIT:
-            exit()
-        elif (event.type == pg.KEYDOWN or
-              event.type == pg.MOUSEBUTTONDOWN):
-            running = False
-            break
-running = True
-pool_group.empty()
-wall_group.empty()
-rabbit_count = generate_level(load_level(stages[stage - 1]))
-# цикл игры
-pg.mixer.music.stop()
-pg.mixer.music.load('data/game.mp3')
-pg.mixer.music.play(-1, 0.0)
-while running:
-    for event in pg.event.get():
-        # при закрытии окна
-        if event.type == pg.QUIT:
-            running = False
-        if game_over:
-            # ждем нажатия любой клавиши
-            if event.type == pg.KEYDOWN:
-                score = 0  # счет
-                level = 1  # уровень сложности
-                stage = 1  # уровень
-                rabbit_sprites.empty()
-                carrot_sprites.empty()
-                pool_group.empty()
-                wall_group.empty()
-                playerh_group.empty()
-                player_group.empty()
-                rabbit_count = generate_level(load_level(stages[stage - 1]))
-                pg.display.flip()
-                game_over = False
-                pg.mixer.music.stop()
-                pg.mixer.music.load('data/game.mp3')
-                pg.mixer.music.play(-1, 0.0)
-        else:
-            # отрисовка и изменение свойств объектов
-            draw()
-            pg.display.flip()
-            if rabbit_count == 0:  # уровень пройден
-                pg.mixer.music.stop()
-                pg.mixer.music.load('data/count.ogg')
-                pg.mixer.music.play(-1, 0.0)
-                # отключаем событие по таймеру
-                pg.time.set_timer(EVENTTICK, 0)
-                # бонусы за оставшиеся морковки
-                for i in carrot_sprites:
-                    pg.event.get()
-                    score += 50
-                    i.kill()
-                    draw()
-                    pg.display.flip()
-                    clock.tick(FPS / 4)
-                # очищаем все группы спрайтов
-                rabbit_sprites.empty()
-                carrot_sprites.empty()
-                pool_group.empty()
-                wall_group.empty()
-                playerh_group.empty()
-                player_group.empty()
-                stage += 1
-                if stage > len(stages):
-                    stage = 1
-                    level += 1
-                # загружаем следующий уровень
-                rabbit_count = generate_level(load_level(stages[stage - 1]))
-                # включаем событие по таймеру
-                pg.time.set_timer(EVENTTICK, TICKLENGTH)
-                pg.mixer.music.stop()
-                pg.mixer.music.load('data/game.mp3')
-                pg.mixer.music.play(-1, 0.0)
-        clock.tick(FPS)
-pg.quit()
+rabbit_count = 0
+score = 0  # счет
+start_screen()
